@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Tài Liệu Thiết Kế File Server & Permission System</title>
+
+    <style>
+        body{
+            font-family: Arial, sans-serif;
+            line-height:1.7;
+            margin:0;
+            padding:0;
+            background:#f5f6fa;
+            color:#222;
+        }
+
+        .container{
+            width:1200px;
+            margin:auto;
+            background:white;
+            padding:40px;
+        }
+
+        h1,h2,h3{
+            color:#0f172a;
+        }
+
+        h1{
+            border-bottom:3px solid #2563eb;
+            padding-bottom:10px;
+        }
+
+        h2{
+            margin-top:40px;
+            border-left:6px solid #2563eb;
+            padding-left:12px;
+        }
+
+        h3{
+            margin-top:25px;
+        }
+
+        pre{
+            background:#0f172a;
+            color:#e2e8f0;
+            padding:16px;
+            overflow:auto;
+            border-radius:8px;
+        }
+
+        table{
+            width:100%;
+            border-collapse: collapse;
+            margin-top:15px;
+        }
+
+        table th, table td{
+            border:1px solid #d1d5db;
+            padding:12px;
+            text-align:left;
+        }
+
+        table th{
+            background:#e2e8f0;
+        }
+
+        .box{
+            background:#eff6ff;
+            border-left:5px solid #2563eb;
+            padding:15px;
+            margin-top:15px;
+        }
+
+        ul li{
+            margin-bottom:8px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <h1>
+        TÀI LIỆU THIẾT KẾ HỆ THỐNG FILE SERVER & PERMISSION SYSTEM
+    </h1>
+
+    <div class="box">
+        Mục tiêu xây dựng hệ thống quản lý file sử dụng Spring Boot,
+        hỗ trợ upload file, folder tree, permission động,
+        quota dung lượng, MinIO storage và audit log.
+    </div>
+
+    <h2>1. Công Nghệ Sử Dụng</h2>
+
+    <table>
+        <tr>
+            <th>Thành phần</th>
+            <th>Công nghệ</th>
+        </tr>
+
+        <tr>
+            <td>Backend</td>
+            <td>Spring Boot</td>
+        </tr>
+
+        <tr>
+            <td>Database</td>
+            <td>MySQL / PostgreSQL</td>
+        </tr>
+
+        <tr>
+            <td>Object Storage</td>
+            <td>MinIO</td>
+        </tr>
+
+        <tr>
+            <td>Build Tool</td>
+            <td>Maven / Gradle</td>
+        </tr>
+    </table>
+
+    <h2>2. Kiến Trúc Tổng Thể</h2>
+
+<pre><code>
+Client
+   ↓
+Spring Boot API
+   ├── Login Module
+   ├── User Module
+   ├── File Module
+   ├── Folder Module
+   ├── Permission Module
+   ├── Quota Module
+   ├── Audit Log Module
+   └── Storage Module
+            ↓
+         MinIO
+            ↓
+     Local Temp Storage
+</code></pre>
+
+    <h2>3. Cơ Chế Login Tạm Thời</h2>
+
+    <div class="box">
+        Hệ thống tạm thời KHÔNG sử dụng JWT Authentication.
+        Để đơn giản hóa việc development và test API,
+        hệ thống sử dụng 1 biến static để lưu user hiện tại.
+    </div>
+
+    <h3>3.1 Nguyên Lý Hoạt Động</h3>
+
+<pre><code>
+User gọi API login
+        ↓
+Truyền username
+        ↓
+Server lưu username vào biến static
+        ↓
+Mọi API tiếp theo sẽ sử dụng user này
+</code></pre>
+
+    <h3>3.2 Login API</h3>
+
+<pre><code>
+POST /api/auth/login
+</code></pre>
+
+    <h3>Request Body</h3>
+
+<pre><code>
+{
+    "username": "admin"
+}
+</code></pre>
+
+    <h3>Ví dụ Class Static</h3>
+
+<pre><code>
+public class LoginContext {
+
+    public static String CURRENT_USER;
+}
+</code></pre>
+
+    <h3>Ví dụ Login Service</h3>
+
+<pre><code>
+public void login(String username) {
+
+    LoginContext.CURRENT_USER = username;
+}
+</code></pre>
+
+    <h3>Ví dụ Lấy User Hiện Tại</h3>
+
+<pre><code>
+String currentUser = LoginContext.CURRENT_USER;
+</code></pre>
+
+    <h3>Lưu Ý</h3>
+
+    <div class="box">
+        Cơ chế này chỉ dùng cho:
+        <ul>
+            <li>Demo</li>
+            <li>Development</li>
+            <li>Testing local</li>
+        </ul>
+
+        Không phù hợp cho production vì:
+        <ul>
+            <li>Không hỗ trợ multi-user thật</li>
+            <li>Không thread-safe</li>
+            <li>Không bảo mật</li>
+            <li>Không hỗ trợ session/token</li>
+        </ul>
+    </div>
+
+    <h2>4. Mô Hình Upload File</h2>
+
+<pre><code>
+User Upload File
+        ↓
+Lưu temp local server
+        ↓
+Validate file
+        ↓
+Kiểm tra quota
+        ↓
+Generate checksum
+        ↓
+Upload MinIO
+        ↓
+Save metadata DB
+        ↓
+Delete temp file
+</code></pre>
+
+    <h2>5. Thiết Kế Database</h2>
+
+    <h3>5.1 Bảng Users</h3>
+
+<pre><code>
+users
+-----
+id
+username
+email
+password
+full_name
+status
+used_storage
+max_storage
+created_at
+updated_at
+</code></pre>
+
+    <table>
+        <tr>
+            <th>Field</th>
+            <th>Ý nghĩa</th>
+        </tr>
+
+        <tr>
+            <td>used_storage</td>
+            <td>Dung lượng đã sử dụng</td>
+        </tr>
+
+        <tr>
+            <td>max_storage</td>
+            <td>Quota tối đa của user</td>
+        </tr>
+    </table>
+
+    <h3>5.2 Bảng Folders</h3>
+
+<pre><code>
+folders
+-------
+id
+name
+parent_id
+path
+owner_id
+is_deleted
+created_at
+updated_at
+</code></pre>
+
+    <h3>5.3 Bảng Files</h3>
+
+<pre><code>
+files
+-----
+id
+file_name
+extension
+mime_type
+size
+storage_path
+checksum
+version
+folder_id
+owner_id
+status
+is_deleted
+created_at
+updated_at
+</code></pre>
+
+    <h3>5.4 Bảng File Versions</h3>
+
+<pre><code>
+file_versions
+-------------
+id
+file_id
+version
+storage_path
+checksum
+size
+created_by
+created_at
+</code></pre>
+
+    <h3>5.5 Bảng Roles</h3>
+
+<pre><code>
+roles
+-----
+id
+code
+name
+</code></pre>
+
+    <h3>5.6 Bảng Permissions</h3>
+
+<pre><code>
+permissions
+-----------
+id
+code
+name
+</code></pre>
+
+    <h3>5.7 Bảng Role Permissions</h3>
+
+<pre><code>
+role_permissions
+----------------
+role_id
+permission_id
+</code></pre>
+
+    <h3>5.8 Bảng User Roles</h3>
+
+<pre><code>
+user_roles
+----------
+user_id
+role_id
+</code></pre>
+
+    <h3>5.9 Bảng Resource Permissions</h3>
+
+<pre><code>
+resource_permissions
+--------------------
+id
+resource_type
+resource_id
+user_id
+permission_code
+allow
+created_by
+created_at
+</code></pre>
+
+    <h2>6. Permission System</h2>
+
+    <div class="box">
+        Hệ thống sử dụng:
+        <strong>RBAC + ACL</strong>
+    </div>
+
+    <h3>6.1 RBAC</h3>
+
+<pre><code>
+ADMIN
+EDITOR
+VIEWER
+</code></pre>
+
+    <h3>6.2 ACL</h3>
+
+<pre><code>
+User A → READ FILE X
+User B → WRITE FOLDER Y
+</code></pre>
+
+    <h3>6.3 Permission Codes</h3>
+
+<pre><code>
+FILE_READ
+FILE_WRITE
+FILE_DELETE
+FILE_SHARE
+FOLDER_CREATE
+FOLDER_DELETE
+</code></pre>
+
+    <h2>7. Permission Flow</h2>
+
+<pre><code>
+1. Kiểm tra ADMIN
+2. Kiểm tra owner
+3. Kiểm tra ACL trực tiếp
+4. Kiểm tra role
+5. Kiểm tra permission folder cha
+6. Từ chối truy cập
+</code></pre>
+
+    <h2>8. Folder Tree Structure</h2>
+
+    <p>
+        Sử dụng Materialized Path để tối ưu query.
+    </p>
+
+<pre><code>
+/root
+/root/dev
+/root/dev/java
+/root/dev/java/project
+</code></pre>
+
+    <h2>9. Quota System</h2>
+
+    <div class="box">
+        Mỗi user có giới hạn dung lượng upload.
+        Mặc định:
+        <strong>10GB / user</strong>
+    </div>
+
+    <h3>9.1 Flow</h3>
+
+<pre><code>
+Upload File
+    ↓
+Lấy file size
+    ↓
+Kiểm tra used_storage + file_size
+    ↓
+Nếu vượt quota → reject
+    ↓
+Cho phép upload
+</code></pre>
+
+    <h3>9.2 Ví dụ</h3>
+
+    <table>
+        <tr>
+            <th>User</th>
+            <th>Used</th>
+            <th>Quota</th>
+            <th>Upload</th>
+            <th>Kết quả</th>
+        </tr>
+
+        <tr>
+            <td>A</td>
+            <td>9GB</td>
+            <td>10GB</td>
+            <td>500MB</td>
+            <td>Success</td>
+        </tr>
+
+        <tr>
+            <td>B</td>
+            <td>9.8GB</td>
+            <td>10GB</td>
+            <td>500MB</td>
+            <td>Reject</td>
+        </tr>
+    </table>
+
+    <h2>10. Local Temp Storage</h2>
+
+<pre><code>
+/temp-upload
+    ├── 2026
+    ├── 05
+    └── temp-file
+</code></pre>
+
+    <h3>Flow</h3>
+
+<pre><code>
+Upload file
+        ↓
+Save local temp
+        ↓
+Validate
+        ↓
+Upload MinIO
+        ↓
+Delete temp file
+</code></pre>
+
+    <h2>11. MinIO Storage</h2>
+
+<pre><code>
+file-server
+    ├── users/
+    ├── folders/
+    ├── images/
+    └── documents/
+</code></pre>
+
+    <h3>Storage Path</h3>
+
+<pre><code>
+users/1/2026/05/document.pdf
+</code></pre>
+
+    <h2>12. File Versioning</h2>
+
+<pre><code>
+Version 1
+Version 2
+Version 3
+</code></pre>
+
+    <p>
+        File cũ vẫn được giữ lại.
+    </p>
+
+    <h2>13. Audit Log</h2>
+
+<pre><code>
+audit_logs
+----------
+id
+user_id
+action
+resource_type
+resource_id
+ip_address
+created_at
+</code></pre>
+
+    <h3>Action</h3>
+
+<pre><code>
+UPLOAD_FILE
+DELETE_FILE
+DOWNLOAD_FILE
+CREATE_FOLDER
+</code></pre>
+
+    <h2>14. API Design</h2>
+
+    <h3>Login</h3>
+
+<pre><code>
+POST /api/auth/login
+</code></pre>
+
+    <h3>Upload File</h3>
+
+<pre><code>
+POST /api/files/upload
+</code></pre>
+
+    <h3>Download File</h3>
+
+<pre><code>
+GET /api/files/{id}/download
+</code></pre>
+
+    <h3>Create Folder</h3>
+
+<pre><code>
+POST /api/folders
+</code></pre>
+
+    <h3>Delete File</h3>
+
+<pre><code>
+DELETE /api/files/{id}
+</code></pre>
+
+    <h3>Assign Permission</h3>
+
+<pre><code>
+POST /api/resources/{id}/permissions
+</code></pre>
+
+    <h2>15. Security</h2>
+
+    <h3>15.1 Validate MIME Type</h3>
+
+    <p>
+        Không trust extension file.
+    </p>
+
+    <h3>15.2 Generate Checksum</h3>
+
+<pre><code>
+SHA-256
+MD5
+</code></pre>
+
+    <h3>15.3 Soft Delete</h3>
+
+    <p>
+        File chỉ đánh dấu xóa logic trước khi xóa vật lý.
+    </p>
+
+    <h2>16. Spring Boot Package Structure</h2>
+
+<pre><code>
+com.example.filesystem
+├── auth
+├── user
+├── role
+├── permission
+├── acl
+├── file
+├── folder
+├── storage
+├── quota
+├── audit
+└── common
+</code></pre>
+
+    <h2>17. Storage Service Design</h2>
+
+<pre><code>
+public interface StorageService {
+
+    String upload(File file);
+
+    InputStream download(String path);
+
+    void delete(String path);
+}
+</code></pre>
+
+    <h3>Implementation</h3>
+
+<pre><code>
+LocalStorageService
+MinioStorageService
+</code></pre>
+
+    <h2>18. Recommendation Architecture</h2>
+
+<pre><code>
+Spring Boot Modular Monolith
+        ↓
+MySQL
+        ↓
+MinIO
+        ↓
+RBAC + ACL Permission
+</code></pre>
+
+</div>
+
+</body>
+</html>

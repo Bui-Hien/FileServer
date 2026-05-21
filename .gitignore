@@ -1,0 +1,20 @@
+# IDEs and editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Build and Dependency directories
+**/target/
+**/node_modules/
+**/dist/
+
+# Local files
+temp-upload/
+**/temp-upload/
+
+# Log files
+*.log
