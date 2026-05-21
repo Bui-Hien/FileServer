@@ -5,6 +5,8 @@ import com.buihien.fileserver.file.dto.FileVersionResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -12,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
+import java.io.File;
 import java.util.List;
 
 @RestController
@@ -81,11 +84,10 @@ public class FileController {
     }
 
     /**
-     * API tải xuống một tệp tin với luồng dữ liệu thô (Raw stream) và các tiêu đề
-     * Header phù hợp.
+     * API tải xuống một tệp tin với hiệu năng cao hỗ trợ Zero-Copy và Range Requests (Tải đa luồng).
      */
     @GetMapping("/{id}/download")
-    public ResponseEntity<InputStreamResource> downloadFile(
+    public ResponseEntity<Resource> downloadFile(
             @PathVariable Long id,
             HttpServletRequest request) {
 
@@ -93,12 +95,14 @@ public class FileController {
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy tệp tin hoặc tệp tin đã bị xóa với ID: " + id));
 
         String ipAddress = getClientIp(request);
-        InputStream inputStream = fileService.downloadFile(id, ipAddress);
+        fileService.verifyDownloadPermissionAndLog(id, ipAddress);
 
-        InputStreamResource resource = new InputStreamResource(inputStream);
+        File file = java.nio.file.Paths.get("temp-upload", fileEntity.getStoragePath()).toFile();
+        FileSystemResource resource = new FileSystemResource(file);
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileEntity.getFileName() + "\"")
+                .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                 .contentType(MediaType.parseMediaType(
                         fileEntity.getMimeType() != null ? fileEntity.getMimeType() : "application/octet-stream"))
                 .contentLength(fileEntity.getSize())
@@ -125,10 +129,10 @@ public class FileController {
     }
 
     /**
-     * API tải xuống một phiên bản lịch sử cụ thể của tệp tin.
+     * API tải xuống một phiên bản lịch sử cụ thể của tệp tin với hiệu năng cao hỗ trợ Zero-Copy và Range Requests (Tải đa luồng).
      */
     @GetMapping("/versions/{versionId}/download")
-    public ResponseEntity<InputStreamResource> downloadFileVersion(
+    public ResponseEntity<Resource> downloadFileVersion(
             @PathVariable Long versionId,
             HttpServletRequest request) {
 
@@ -137,9 +141,10 @@ public class FileController {
 
         FileEntity fileEntity = fileVersion.getFile();
         String ipAddress = getClientIp(request);
-        InputStream inputStream = fileService.downloadFileVersion(versionId, ipAddress);
+        fileService.verifyDownloadVersionPermissionAndLog(versionId, ipAddress);
 
-        InputStreamResource resource = new InputStreamResource(inputStream);
+        File file = java.nio.file.Paths.get("temp-upload", fileVersion.getStoragePath()).toFile();
+        FileSystemResource resource = new FileSystemResource(file);
 
         // Đặt tên file tải xuống theo định dạng: [Tên gốc]_v[Số phiên bản].[Đuôi mở
         // rộng]
@@ -153,6 +158,7 @@ public class FileController {
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + downloadName + "\"")
+                .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                 .contentType(MediaType.parseMediaType(
                         fileEntity.getMimeType() != null ? fileEntity.getMimeType() : "application/octet-stream"))
                 .contentLength(fileVersion.getSize())
