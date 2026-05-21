@@ -460,11 +460,18 @@ public class FileService {
         }
     }
 
-    // Helper: Tính toán mã hash checksum MD5
+    // Helper: Tính toán mã hash checksum MD5 (Tối ưu hóa tránh OutOfMemoryError bằng cách dùng Stream Chunk Buffer)
     private String calculateChecksum(MultipartFile file) {
         try {
             MessageDigest digest = MessageDigest.getInstance("MD5");
-            byte[] hashBytes = digest.digest(file.getBytes());
+            try (InputStream is = file.getInputStream()) {
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = is.read(buffer)) != -1) {
+                    digest.update(buffer, 0, bytesRead);
+                }
+            }
+            byte[] hashBytes = digest.digest();
             StringBuilder sb = new StringBuilder();
             for (byte b : hashBytes) {
                 sb.append(String.format("%02x", b));
@@ -481,5 +488,137 @@ public class FileService {
             return "";
         }
         return fileName.substring(fileName.lastIndexOf(".") + 1);
+    }
+
+    @Transactional
+    public FileResponse uploadChunk(
+            MultipartFile chunk,
+            String uploadId,
+            int chunkIndex,
+            int totalChunks,
+            String fileName,
+            Long folderId,
+            String ipAddress) {
+        
+        // 1. Tạo thư mục tạm lưu các chunk
+        String tempDirPath = "temp-upload/chunks/" + uploadId;
+        java.io.File tempDir = new java.io.File(tempDirPath);
+        if (!tempDir.exists()) {
+            tempDir.mkdirs();
+        }
+
+        // 2. Lưu chunk hiện tại
+        java.io.File chunkFile = new java.io.File(tempDir, String.valueOf(chunkIndex));
+        try {
+            chunk.transferTo(chunkFile);
+        } catch (Exception e) {
+            throw new RuntimeException("Lỗi lưu trữ chunk thứ " + chunkIndex + ": " + e.getMessage(), e);
+        }
+
+        // 3. Kiểm tra xem tất cả các chunk đã được tải lên chưa
+        boolean allUploaded = true;
+        for (int i = 0; i < totalChunks; i++) {
+            java.io.File f = new java.io.File(tempDir, String.valueOf(i));
+            if (!f.exists()) {
+                allUploaded = false;
+                break;
+            }
+        }
+
+        if (!allUploaded) {
+            // Chưa tải lên đủ, trả về null để Frontend biết chưa đến lúc ghép file
+            return null;
+        }
+
+        // 4. Ghép toàn bộ các chunk lại theo thứ tự
+        java.io.File mergedFile = new java.io.File("temp-upload/chunks/" + uploadId + "_merged");
+        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(mergedFile);
+             java.io.BufferedOutputStream bos = new java.io.BufferedOutputStream(fos)) {
+            for (int i = 0; i < totalChunks; i++) {
+                java.io.File f = new java.io.File(tempDir, String.valueOf(i));
+                try (java.io.FileInputStream fis = new java.io.FileInputStream(f);
+                     java.io.BufferedInputStream bis = new java.io.BufferedInputStream(fis)) {
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = bis.read(buffer)) != -1) {
+                        bos.write(buffer, 0, bytesRead);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Lỗi ghép các mảnh tệp tin: " + e.getMessage(), e);
+        }
+
+        // 5. Khởi tạo đối tượng Mock MultipartFile từ file đã ghép để tái sử dụng toàn bộ logic nghiệp vụ tiêu chuẩn
+        MultipartFile mergedMultipartFile = new LocalMultipartFile(mergedFile, fileName, chunk.getContentType());
+
+        try {
+            // Tái sử dụng 100% logic kiểm tra quyền, hạn mức, RCE scan, trùng lặp checksum và ghi log
+            return uploadFile(mergedMultipartFile, folderId, ipAddress);
+        } finally {
+            // Dọn dẹp tệp tin tạm và thư mục chunk
+            try {
+                for (int i = 0; i < totalChunks; i++) {
+                    java.io.File f = new java.io.File(tempDir, String.valueOf(i));
+                    f.delete();
+                }
+                tempDir.delete();
+                mergedFile.delete();
+            } catch (Exception e) {
+                // Bỏ qua lỗi dọn dẹp tạm
+            }
+        }
+    }
+
+    private static class LocalMultipartFile implements MultipartFile {
+        private final java.io.File file;
+        private final String name;
+        private final String contentType;
+
+        public LocalMultipartFile(java.io.File file, String name, String contentType) {
+            this.file = file;
+            this.name = name;
+            this.contentType = contentType;
+        }
+
+        @Override
+        public String getName() {
+            return name;
+        }
+
+        @Override
+        public String getOriginalFilename() {
+            return name;
+        }
+
+        @Override
+        public String getContentType() {
+            return contentType;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return file.length() == 0;
+        }
+
+        @Override
+        public long getSize() {
+            return file.length();
+        }
+
+        @Override
+        public byte[] getBytes() throws java.io.IOException {
+            return java.nio.file.Files.readAllBytes(file.toPath());
+        }
+
+        @Override
+        public java.io.InputStream getInputStream() throws java.io.IOException {
+            return new java.io.FileInputStream(file);
+        }
+
+        @Override
+        public void transferTo(java.io.File dest) throws java.io.IOException, IllegalStateException {
+            java.nio.file.Files.copy(file.toPath(), dest.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 }

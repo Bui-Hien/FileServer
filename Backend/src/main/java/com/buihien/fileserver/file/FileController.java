@@ -43,6 +43,43 @@ public class FileController {
     }
 
     /**
+     * API tải lên tệp tin phân mảnh (Chunked Upload).
+     * Phục vụ cho việc tải lên tệp tin lớn mà không gây tốn tài nguyên bộ nhớ JVM (tránh OutOfMemoryError).
+     */
+    @PostMapping("/upload-chunk")
+    public ResponseEntity<FileResponse> uploadChunk(
+            @RequestParam("file") MultipartFile chunk,
+            @RequestParam("uploadId") String uploadId,
+            @RequestParam("chunkIndex") int chunkIndex,
+            @RequestParam("totalChunks") int totalChunks,
+            @RequestParam("fileName") String fileName,
+            @RequestParam(value = "folderId", required = false) Long folderId,
+            HttpServletRequest request) {
+
+        if (chunk.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        String ipAddress = getClientIp(request);
+        FileResponse response = fileService.uploadChunk(
+                chunk,
+                uploadId,
+                chunkIndex,
+                totalChunks,
+                fileName,
+                folderId,
+                ipAddress
+        );
+
+        if (response == null) {
+            // Trả về HTTP 202 Accepted để báo hiệu Chunk đã nhận thành công nhưng tệp chưa được ghép hoàn chỉnh
+            return ResponseEntity.accepted().build();
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * API tải xuống một tệp tin với luồng dữ liệu thô (Raw stream) và các tiêu đề Header phù hợp.
      */
     @GetMapping("/{id}/download")

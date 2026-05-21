@@ -345,7 +345,7 @@ const Dashboard = () => {
     }
   };
 
-  // Tải file lên
+  // Tải file lên (Tối ưu hóa chia nhỏ file - Chunked Upload tránh OutOfMemoryError cho file lớn)
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -353,7 +353,42 @@ const Dashboard = () => {
     setUploading(true);
     const startUploadTime = Date.now();
     try {
-      const response = await fileService.uploadFile(file, currentFolderId);
+      const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB mỗi chunk
+      const fileSize = file.size;
+
+      let response;
+      if (fileSize <= CHUNK_SIZE) {
+        // Tệp nhỏ: Tải trực tiếp như bình thường
+        response = await fileService.uploadFile(file, currentFolderId);
+      } else {
+        // Tệp lớn: Chia làm nhiều phần (Chunked Upload)
+        const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
+        const uploadId = `${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+        
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+          const start = chunkIndex * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, fileSize);
+          const chunk = file.slice(start, end);
+          
+          showToast(`Đang tải lên: ${Math.round((chunkIndex / totalChunks) * 100)}% (Phần ${chunkIndex + 1}/${totalChunks})...`, 'info');
+          
+          // Tải chunk hiện tại lên
+          const res = await fileService.uploadFileChunk(
+            chunk,
+            uploadId,
+            chunkIndex,
+            totalChunks,
+            file.name,
+            currentFolderId
+          );
+
+          if (chunkIndex === totalChunks - 1) {
+            // Chunk cuối cùng sẽ trả về kết quả FileResponse hoàn chỉnh sau khi ghép
+            response = res;
+          }
+        }
+      }
+
       const uploadDuration = Date.now() - startUploadTime;
 
       if (uploadDuration < 250) {

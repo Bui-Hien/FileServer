@@ -14,6 +14,23 @@ export const fileService = {
     });
     return response.data;
   },
+  uploadFileChunk: async (chunk, uploadId, chunkIndex, totalChunks, fileName, folderId = null) => {
+    const formData = new FormData();
+    formData.append('file', chunk);
+    formData.append('uploadId', uploadId);
+    formData.append('chunkIndex', chunkIndex);
+    formData.append('totalChunks', totalChunks);
+    formData.append('fileName', fileName);
+    if (folderId) {
+      formData.append('folderId', folderId);
+    }
+    const response = await api.post('/files/upload-chunk', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
   getFilesByFolder: async (folderId = null) => {
     const response = await api.get('/files', {
       params: folderId ? { folderId } : {},

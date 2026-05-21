@@ -8,8 +8,8 @@ spring:
   servlet:
     multipart:
       enabled: true
-      max-file-size: 2GB
-      max-request-size: 2GB
+      max-file-size: 10GB
+      max-request-size: 10GB
   application:
     name: fileserver
   datasource:
