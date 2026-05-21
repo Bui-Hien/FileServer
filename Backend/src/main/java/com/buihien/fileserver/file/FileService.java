@@ -236,6 +236,27 @@ public class FileService {
         return is;
     }
 
+    @Transactional
+    public void verifyDownloadPermissionAndLog(Long id, String ipAddress) {
+        User currentUser = authService.getCurrentUser();
+        FileEntity fileEntity = fileRepository.findByIdAndIsDeletedFalse(id)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tệp tin hoặc tệp tin đã bị xóa với ID: " + id));
+
+        boolean hasPermission = permissionService.checkPermission(currentUser.getId(), "FILE", fileEntity.getId(),
+                "FILE_READ");
+        if (!hasPermission) {
+            throw new SecurityException("Từ chối truy cập! Bạn không có quyền đọc/tải xuống tệp tin này.");
+        }
+
+        auditLogRepository.save(AuditLog.builder()
+                .user(currentUser)
+                .action("DOWNLOAD_FILE")
+                .resourceType("FILE")
+                .resourceId(fileEntity.getId())
+                .ipAddress(ipAddress)
+                .build());
+    }
+
     /**
      * Tải xuống một phiên bản lịch sử cũ của tệp tin.
      */
@@ -267,6 +288,29 @@ public class FileService {
                 .build());
 
         return is;
+    }
+
+    @Transactional
+    public void verifyDownloadVersionPermissionAndLog(Long versionId, String ipAddress) {
+        User currentUser = authService.getCurrentUser();
+        FileVersion fileVersion = fileVersionRepository.findById(versionId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy phiên bản tệp tin với ID: " + versionId));
+
+        FileEntity fileEntity = fileVersion.getFile();
+
+        boolean hasPermission = permissionService.checkPermission(currentUser.getId(), "FILE", fileEntity.getId(),
+                "FILE_READ");
+        if (!hasPermission) {
+            throw new SecurityException("Từ chối truy cập! Bạn không có quyền đọc/tải xuống tệp tin này.");
+        }
+
+        auditLogRepository.save(AuditLog.builder()
+                .user(currentUser)
+                .action("DOWNLOAD_FILE_VERSION")
+                .resourceType("FILE")
+                .resourceId(fileEntity.getId())
+                .ipAddress(ipAddress)
+                .build());
     }
 
     /**

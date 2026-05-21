@@ -44,7 +44,8 @@ public class FileController {
 
     /**
      * API tải lên tệp tin phân mảnh (Chunked Upload).
-     * Phục vụ cho việc tải lên tệp tin lớn mà không gây tốn tài nguyên bộ nhớ JVM (tránh OutOfMemoryError).
+     * Phục vụ cho việc tải lên tệp tin lớn mà không gây tốn tài nguyên bộ nhớ JVM
+     * (tránh OutOfMemoryError).
      */
     @PostMapping("/upload-chunk")
     public ResponseEntity<FileResponse> uploadChunk(
@@ -68,11 +69,11 @@ public class FileController {
                 totalChunks,
                 fileName,
                 folderId,
-                ipAddress
-        );
+                ipAddress);
 
         if (response == null) {
-            // Trả về HTTP 202 Accepted để báo hiệu Chunk đã nhận thành công nhưng tệp chưa được ghép hoàn chỉnh
+            // Trả về HTTP 202 Accepted để báo hiệu Chunk đã nhận thành công nhưng tệp chưa
+            // được ghép hoàn chỉnh
             return ResponseEntity.accepted().build();
         }
 
@@ -80,7 +81,8 @@ public class FileController {
     }
 
     /**
-     * API tải xuống một tệp tin với luồng dữ liệu thô (Raw stream) và các tiêu đề Header phù hợp.
+     * API tải xuống một tệp tin với luồng dữ liệu thô (Raw stream) và các tiêu đề
+     * Header phù hợp.
      */
     @GetMapping("/{id}/download")
     public ResponseEntity<InputStreamResource> downloadFile(
@@ -97,7 +99,8 @@ public class FileController {
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileEntity.getFileName() + "\"")
-                .contentType(MediaType.parseMediaType(fileEntity.getMimeType() != null ? fileEntity.getMimeType() : "application/octet-stream"))
+                .contentType(MediaType.parseMediaType(
+                        fileEntity.getMimeType() != null ? fileEntity.getMimeType() : "application/octet-stream"))
                 .contentLength(fileEntity.getSize())
                 .body(resource);
     }
@@ -138,15 +141,20 @@ public class FileController {
 
         InputStreamResource resource = new InputStreamResource(inputStream);
 
-        // Đặt tên file tải xuống theo định dạng: [Tên gốc]_v[Số phiên bản].[Đuôi mở rộng]
+        // Đặt tên file tải xuống theo định dạng: [Tên gốc]_v[Số phiên bản].[Đuôi mở
+        // rộng]
         String originalName = fileEntity.getFileName();
-        String baseName = originalName.contains(".") ? originalName.substring(0, originalName.lastIndexOf(".")) : originalName;
-        String ext = fileEntity.getExtension() != null && !fileEntity.getExtension().isEmpty() ? "." + fileEntity.getExtension() : "";
+        String baseName = originalName.contains(".") ? originalName.substring(0, originalName.lastIndexOf("."))
+                : originalName;
+        String ext = fileEntity.getExtension() != null && !fileEntity.getExtension().isEmpty()
+                ? "." + fileEntity.getExtension()
+                : "";
         String downloadName = baseName + "_v" + fileVersion.getVersion() + ext;
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + downloadName + "\"")
-                .contentType(MediaType.parseMediaType(fileEntity.getMimeType() != null ? fileEntity.getMimeType() : "application/octet-stream"))
+                .contentType(MediaType.parseMediaType(
+                        fileEntity.getMimeType() != null ? fileEntity.getMimeType() : "application/octet-stream"))
                 .contentLength(fileVersion.getSize())
                 .body(resource);
     }
@@ -155,7 +163,8 @@ public class FileController {
      * API lấy danh sách toàn bộ tệp tin trong một thư mục chỉ định.
      */
     @GetMapping
-    public ResponseEntity<List<FileResponse>> getFilesByFolder(@RequestParam(value = "folderId", required = false) Long folderId) {
+    public ResponseEntity<List<FileResponse>> getFilesByFolder(
+            @RequestParam(value = "folderId", required = false) Long folderId) {
         List<FileResponse> files = fileService.getFilesByFolder(folderId);
         return ResponseEntity.ok(files);
     }
