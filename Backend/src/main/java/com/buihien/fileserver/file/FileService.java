@@ -544,15 +544,15 @@ public class FileService {
             Long folderId,
             String ipAddress) {
         
-        // 1. Tạo thư mục tạm lưu các chunk
-        String tempDirPath = "temp-upload/chunks/" + uploadId;
-        java.io.File tempDir = new java.io.File(tempDirPath);
+        // 1. Tạo thư mục tạm lưu các chunk với đường dẫn tuyệt đối để tránh việc Tomcat tự phân giải sai thư mục tạm của nó
+        java.nio.file.Path tempDirAbsolutePath = java.nio.file.Paths.get("temp-upload", "chunks", uploadId).toAbsolutePath().normalize();
+        java.io.File tempDir = tempDirAbsolutePath.toFile();
         if (!tempDir.exists()) {
             tempDir.mkdirs();
         }
 
-        // 2. Lưu chunk hiện tại
-        java.io.File chunkFile = new java.io.File(tempDir, String.valueOf(chunkIndex));
+        // 2. Lưu chunk hiện tại bằng đường dẫn tuyệt đối
+        java.io.File chunkFile = tempDirAbsolutePath.resolve(String.valueOf(chunkIndex)).toFile();
         try {
             chunk.transferTo(chunkFile);
         } catch (Exception e) {
@@ -562,7 +562,7 @@ public class FileService {
         // 3. Kiểm tra xem tất cả các chunk đã được tải lên chưa
         boolean allUploaded = true;
         for (int i = 0; i < totalChunks; i++) {
-            java.io.File f = new java.io.File(tempDir, String.valueOf(i));
+            java.io.File f = tempDirAbsolutePath.resolve(String.valueOf(i)).toFile();
             if (!f.exists()) {
                 allUploaded = false;
                 break;
@@ -574,12 +574,12 @@ public class FileService {
             return null;
         }
 
-        // 4. Ghép toàn bộ các chunk lại theo thứ tự
-        java.io.File mergedFile = new java.io.File("temp-upload/chunks/" + uploadId + "_merged");
+        // 4. Ghép toàn bộ các chunk lại theo thứ tự bằng đường dẫn tuyệt đối
+        java.io.File mergedFile = java.nio.file.Paths.get("temp-upload", "chunks", uploadId + "_merged").toAbsolutePath().normalize().toFile();
         try (java.io.FileOutputStream fos = new java.io.FileOutputStream(mergedFile);
              java.io.BufferedOutputStream bos = new java.io.BufferedOutputStream(fos)) {
             for (int i = 0; i < totalChunks; i++) {
-                java.io.File f = new java.io.File(tempDir, String.valueOf(i));
+                java.io.File f = tempDirAbsolutePath.resolve(String.valueOf(i)).toFile();
                 try (java.io.FileInputStream fis = new java.io.FileInputStream(f);
                      java.io.BufferedInputStream bis = new java.io.BufferedInputStream(fis)) {
                     byte[] buffer = new byte[8192];
@@ -603,7 +603,7 @@ public class FileService {
             // Dọn dẹp tệp tin tạm và thư mục chunk
             try {
                 for (int i = 0; i < totalChunks; i++) {
-                    java.io.File f = new java.io.File(tempDir, String.valueOf(i));
+                    java.io.File f = tempDirAbsolutePath.resolve(String.valueOf(i)).toFile();
                     f.delete();
                 }
                 tempDir.delete();
